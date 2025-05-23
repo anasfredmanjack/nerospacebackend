@@ -7,13 +7,13 @@ const nodemailer = require("nodemailer")
 const multer = require("multer")
 const fs = require("fs")
 const path = require("path")
-const Course = require("./models/course")
-const Userprofiles = require("./models/userprofiles")
-const Notifications = require("./models/notifications")
-const { welcomeEmail } = require("./utils/newusermailtemplate")
+const Course = require("../models/course")
+const Userprofiles = require("../models/userprofiles")
+const Notifications = require("../models/notifications")
+const { welcomeEmail } = require("../utils/newusermailtemplate")
 
 // Import the StorachaClient
-const StorachaClient = require("./utils/storacha-client")
+const StorachaClient = require("../utils/storacha-client")
 // Fallback to Web3Storage if Storacha fails
 const { Web3Storage } = require("web3.storage")
 
