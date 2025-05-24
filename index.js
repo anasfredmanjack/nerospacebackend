@@ -23,11 +23,11 @@ const PORT = process.env.PORT || 5000
 // CORS + JSON body parsing with improved mobile support
 app.use(
   cors({
-    origin: "*",
+    origin: "*", // Allow all origins (only for development)
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: false, // not needed or can be omitted
     maxAge: 86400,
-  })
+  }),
+  
 )
 app.use(express.json({ limit: "50mb" })) // Increased limit for mobile uploads
 app.use(express.urlencoded({ extended: true, limit: "50mb" }))
