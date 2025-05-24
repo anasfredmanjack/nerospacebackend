@@ -25,9 +25,9 @@ app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true,
-    maxAge: 86400, // 24 hours CORS preflight cache
-  }),
+    credentials: false, // not needed or can be omitted
+    maxAge: 86400,
+  })
 )
 app.use(express.json({ limit: "50mb" })) // Increased limit for mobile uploads
 app.use(express.urlencoded({ extended: true, limit: "50mb" }))
