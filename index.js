@@ -21,12 +21,12 @@ const app = express()
 const PORT = process.env.PORT || 5000
 
 // CORS + JSON body parsing with improved mobile support
-app.use(
-  cors({
-    origin: "*", // Allow all origins (only for development)
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    maxAge: 86400,
-  }),
+app.use(cors({
+  origin: "https://nerospace-three.vercel.app",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  optionsSuccessStatus: 200,
+}),
   
 )
 app.use(express.json({ limit: "50mb" })) // Increased limit for mobile uploads
@@ -1328,3 +1328,6 @@ process.on("SIGTERM", () => {
     process.exit(0)
   })
 })
+
+// Export as Vercel handler
+module.exports = app;
