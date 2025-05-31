@@ -5,11 +5,35 @@ import morgan from "morgan";
 import { NerogigsModule } from "@/app/nerogigs/nerogigs.module";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import swaggerJsdoc from "swagger-jsdoc";
+import swaggerUi from "swagger-ui-express";
 
 dotenv.config();
 
 export const app = express();
 const PORT = process.env.PORT || 4000;
+
+// Swagger configuration
+const swaggerOptions = {
+  definition: {
+    openapi: "3.0.0",
+    info: {
+      title: "NeroGigs API Documentation",
+      version: "1.0.0",
+      description: "API documentation for NeroGigs platform",
+    },
+    servers: [
+      {
+        url: `http://localhost:${PORT}`,
+        description: "Development server",
+      },
+    ],
+  },
+  apis: ["./src/**/*.ts", "./src/app/nerogigs/*.swagger.ts"], // Updated to include swagger directory
+};
+
+const swaggerDocs = swaggerJsdoc(swaggerOptions);
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
 // Request logging middleware
 app.use(morgan("dev")); // Logs: :method :url :status :response-time ms
@@ -52,6 +76,9 @@ const connectDB = async () => {
     // Start the server only after successful database connection
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
+      console.log(
+        `Swagger documentation available at http://localhost:${PORT}/api-docs`
+      );
     });
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
