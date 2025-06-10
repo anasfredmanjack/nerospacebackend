@@ -1,4 +1,3 @@
-// server.js
 require("dotenv").config()
 const express = require("express")
 const cors = require("cors")
@@ -12,7 +11,7 @@ const Userprofiles = require("./models/userprofiles")
 const Notifications = require("./models/notifications")
 const { welcomeEmail } = require("./utils/newusermailtemplate")
 
-// Import the StorachaClient
+// Import the updated StorachaClient
 const StorachaClient = require("./utils/storacha-client")
 // Fallback to Web3Storage if Storacha fails
 const { Web3Storage } = require("web3.storage")
@@ -21,7 +20,23 @@ const app = express()
 const PORT = process.env.PORT || 5000
 
 // CORS + JSON body parsing with improved mobile support
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+      "Origin",
+      "X-Device-Type",
+      "X-Client-Version",
+    ],
+    credentials: true,
+    maxAge: 86400, // 24 hours CORS preflight cache
+  }),
+)
 app.use(express.json({ limit: "50mb" })) // Increased limit for mobile uploads
 app.use(express.urlencoded({ extended: true, limit: "50mb" }))
 
@@ -34,22 +49,6 @@ const transporter = nodemailer.createTransport({
   },
 })
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, "uploads")
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true })
-    }
-    cb(null, uploadDir)
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9)
-    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname))
-  },
-})
-
 // Multer for in-memory file parsing with better mobile support
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -57,6 +56,8 @@ const upload = multer({
     fileSize: 500 * 1024 * 1024, // 500MB limit for video uploads
   },
   fileFilter: (req, file, cb) => {
+    console.log(`Processing file: ${file.fieldname} - ${file.originalname} (${file.mimetype})`)
+
     if (file.fieldname === "video") {
       // Check file type for videos
       if (file.mimetype === "video/mp4" || file.mimetype === "video/webm" || file.mimetype === "video/quicktime") {
@@ -77,47 +78,127 @@ const upload = multer({
   },
 })
 
-// Initialize Storacha client
-const storacha = new StorachaClient({ apiKey: process.env.STORACHA_TOKEN })
+// Initialize Storacha client with proper error handling
+let storacha = null
+let web3storage = null
 
-// Initialize Web3Storage client as fallback
-const web3storage = process.env.WEB3STORAGE_TOKEN ? new Web3Storage({ token: process.env.WEB3STORAGE_TOKEN }) : null
-
-// Helper function to upload file to storage
-async function uploadFileToStorage(fileBuffer, fileName, mimeType) {
+async function initializeStorageClients() {
   try {
-    // Try uploading with Storacha first
-    const uploadResponse = await storacha.upload({
-      data: fileBuffer,
-      filename: fileName,
-      contentType: mimeType,
-    })
-
-    return {
-      cid: uploadResponse.cid,
-      name: fileName,
-      url: uploadResponse.url,
-    }
-  } catch (storageError) {
-    console.error("Storacha upload failed", storageError)
-
-    // Fallback to Web3Storage if available
-    if (web3storage) {
-      try {
-        const file = new File([fileBuffer], fileName, { type: mimeType })
-        const cid = await web3storage.put([file], { wrapWithDirectory: false })
-        return {
-          cid: cid,
-          name: fileName,
-          url: `https://${cid}.ipfs.w3s.link/${fileName}`,
-        }
-      } catch (web3Error) {
-        console.error("Web3Storage upload failed", web3Error)
-        throw new Error("Failed to upload file to storage")
-      }
+    if (process.env.STORACHA_TOKEN) {
+      storacha = new StorachaClient({ apiKey: process.env.STORACHA_TOKEN })
+      await storacha.initialize()
+      console.log("Storacha client initialized successfully")
     } else {
-      throw new Error("No storage provider available")
+      console.warn("STORACHA_TOKEN not found in environment variables")
     }
+  } catch (error) {
+    console.error("Failed to initialize Storacha client:", error)
+    storacha = null
+  }
+
+  // Initialize Web3Storage as fallback
+  try {
+    if (process.env.WEB3STORAGE_TOKEN) {
+      web3storage = new Web3Storage({ token: process.env.WEB3STORAGE_TOKEN })
+      console.log("Web3Storage client initialized as fallback")
+    } else {
+      console.warn("WEB3STORAGE_TOKEN not found in environment variables")
+    }
+  } catch (error) {
+    console.error("Failed to initialize Web3Storage client:", error)
+    web3storage = null
+  }
+}
+
+// Initialize storage clients on startup
+initializeStorageClients()
+
+// Enhanced helper function to upload file to storage with better error handling
+async function uploadFileToStorage(fileBuffer, fileName, mimeType) {
+  console.log(`Attempting to upload file: ${fileName} (${mimeType}, ${fileBuffer.length} bytes)`)
+
+  if (!fileBuffer || fileBuffer.length === 0) {
+    throw new Error("File buffer is empty")
+  }
+
+  // Try Storacha first
+  if (storacha) {
+    try {
+      console.log("Uploading to Storacha...")
+      const uploadResponse = await storacha.upload({
+        data: fileBuffer,
+        filename: fileName,
+        contentType: mimeType,
+      })
+
+      console.log("Storacha upload successful:", uploadResponse)
+
+      // Save upload info to database for tracking
+      await saveUploadInfo({
+        cid: uploadResponse.cid,
+        filename: fileName,
+        size: uploadResponse.size,
+        type: mimeType,
+        provider: "storacha",
+        url: uploadResponse.url,
+      })
+
+      return {
+        cid: uploadResponse.cid,
+        name: fileName,
+        url: uploadResponse.url,
+        provider: "storacha",
+      }
+    } catch (storageError) {
+      console.error("Storacha upload failed:", storageError)
+      // Continue to fallback
+    }
+  }
+
+  // Fallback to Web3Storage
+  if (web3storage) {
+    try {
+      console.log("Falling back to Web3Storage...")
+      const file = new File([fileBuffer], fileName, { type: mimeType })
+      const cid = await web3storage.put([file], { wrapWithDirectory: false })
+
+      const result = {
+        cid: cid,
+        name: fileName,
+        url: `https://${cid}.ipfs.w3s.link/${encodeURIComponent(fileName)}`,
+        provider: "web3storage",
+      }
+
+      console.log("Web3Storage upload successful:", result)
+
+      // Save upload info to database for tracking
+      await saveUploadInfo({
+        cid: result.cid,
+        filename: fileName,
+        size: fileBuffer.length,
+        type: mimeType,
+        provider: "web3storage",
+        url: result.url,
+      })
+
+      return result
+    } catch (web3Error) {
+      console.error("Web3Storage upload failed:", web3Error)
+    }
+  }
+
+  throw new Error("All storage providers failed. Please check your configuration.")
+}
+
+// Helper function to save upload information for tracking
+async function saveUploadInfo(uploadData) {
+  try {
+    // You can create a separate collection for tracking uploads if needed
+    console.log("Upload info saved:", uploadData)
+    // Example: await UploadTracking.create(uploadData)
+  } catch (error) {
+    console.error("Failed to save upload info:", error)
+    // Don't throw error as this is just for tracking
   }
 }
 
@@ -184,6 +265,7 @@ function validateCourseForPublishing(course) {
 app.post("/courses", upload.single("thumbnail"), async (req, res) => {
   try {
     const data = req.body
+    console.log("Creating course with data:", { ...data, thumbnail: req.file ? "FILE_PROVIDED" : "NO_FILE" })
 
     // Minimal validation for course creation
     if (!data.title) {
@@ -207,11 +289,16 @@ app.post("/courses", upload.single("thumbnail"), async (req, res) => {
     // Handle thumbnail upload
     if (req.file) {
       try {
+        console.log("Uploading thumbnail...")
         const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
         data.thumbnail = fileData.url
+        data.thumbnailCid = fileData.cid
+        console.log("Thumbnail uploaded successfully:", fileData.url)
       } catch (uploadError) {
         console.error("Error uploading thumbnail:", uploadError)
         // Continue without thumbnail if upload fails
+        data.thumbnail = ""
+        data.thumbnailCid = ""
       }
     }
 
@@ -224,6 +311,7 @@ app.post("/courses", upload.single("thumbnail"), async (req, res) => {
 
     // Create the course
     const course = await Course.create(data)
+    console.log("Course created successfully:", course._id)
 
     res.json({ status: "ok", course })
   } catch (e) {
@@ -237,6 +325,8 @@ app.post("/courses/draft", upload.single("thumbnail"), async (req, res) => {
   try {
     const data = req.body
     let course
+
+    console.log("Saving draft with data:", { ...data, thumbnail: req.file ? "FILE_PROVIDED" : "NO_FILE" })
 
     // Check if we have a course ID
     if (data._id) {
@@ -257,12 +347,16 @@ app.post("/courses/draft", upload.single("thumbnail"), async (req, res) => {
         // Handle thumbnail upload
         if (req.file) {
           try {
+            console.log("Uploading new thumbnail for existing course...")
             const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
             data.thumbnail = fileData.url
+            data.thumbnailCid = fileData.cid
+            console.log("New thumbnail uploaded successfully:", fileData.url)
           } catch (uploadError) {
             console.error("Error uploading thumbnail:", uploadError)
             // Keep existing thumbnail
             data.thumbnail = existingCourse.thumbnail
+            data.thumbnailCid = existingCourse.thumbnailCid
           }
         }
 
@@ -274,6 +368,7 @@ app.post("/courses/draft", upload.single("thumbnail"), async (req, res) => {
 
         // Update the course
         course = await Course.findByIdAndUpdate(data._id, { $set: data }, { new: true })
+        console.log("Draft updated successfully:", course._id)
 
         res.json({ status: "ok", course, message: "Draft updated successfully" })
       } else {
@@ -318,11 +413,16 @@ async function createNewDraft(data, req, res) {
   // Handle thumbnail upload
   if (req.file) {
     try {
+      console.log("Uploading thumbnail for new draft...")
       const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
       data.thumbnail = fileData.url
+      data.thumbnailCid = fileData.cid
+      console.log("Thumbnail uploaded successfully:", fileData.url)
     } catch (uploadError) {
       console.error("Error uploading thumbnail:", uploadError)
       // Continue without thumbnail
+      data.thumbnail = ""
+      data.thumbnailCid = ""
     }
   }
 
@@ -335,9 +435,253 @@ async function createNewDraft(data, req, res) {
 
   // Create the course
   const course = await Course.create(data)
+  console.log("New draft created successfully:", course._id)
 
   res.json({ status: "ok", course, message: "New draft created successfully" })
 }
+
+// Add Lesson with enhanced video upload handling
+app.post("/courses/:courseId/modules/:moduleId/lessons", upload.single("video"), async (req, res) => {
+  const { courseId, moduleId } = req.params
+  const { title, content, type = "video", duration, isPreview = false, questions } = req.body
+
+  // Set appropriate timeout for mobile uploads
+  req.setTimeout(300000) // 5 minutes timeout for large uploads
+
+  console.log(`Adding lesson: ${title} (type: ${type}) to module ${moduleId} in course ${courseId}`)
+
+  if (!title) {
+    return res.status(400).json({ error: "Lesson title required" })
+  }
+
+  // Validate based on lesson type
+  if (type === "video" && !req.file) {
+    return res.status(400).json({ error: "Video file required for video lessons" })
+  }
+
+  try {
+    // Find the course and module first
+    const course = await Course.findById(courseId)
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" })
+    }
+
+    const moduleIndex = course.modules.findIndex((m) => m._id.toString() === moduleId)
+    if (moduleIndex === -1) {
+      return res.status(404).json({ error: "Module not found" })
+    }
+
+    // Create lesson object with common fields
+    const lesson = {
+      _id: new mongoose.Types.ObjectId(),
+      title,
+      type,
+      isPreview: isPreview === "true" || isPreview === true,
+      order: course.modules[moduleIndex].lessons.length,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    // Add type-specific fields
+    if (type === "video") {
+      // Parse duration to seconds if provided as MM:SS
+      if (duration) {
+        if (typeof duration === "number") {
+          lesson.duration = duration
+        } else {
+          const parts = duration.split(":")
+          if (parts.length === 2) {
+            const minutes = Number.parseInt(parts[0], 10)
+            const seconds = Number.parseInt(parts[1], 10)
+            if (!isNaN(minutes) && !isNaN(seconds)) {
+              lesson.duration = minutes * 60 + seconds
+            } else {
+              lesson.duration = 0
+            }
+          } else {
+            lesson.duration = Number.parseInt(duration, 10) || 0
+          }
+        }
+      } else {
+        lesson.duration = 0
+      }
+
+      // Upload video if provided
+      if (req.file) {
+        try {
+          console.log(`Uploading video: ${req.file.originalname} (${req.file.size} bytes)`)
+          const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
+          lesson.videoCid = fileData.cid
+          lesson.videoName = fileData.name
+          lesson.videoUrl = fileData.url
+          console.log("Video uploaded successfully:", fileData.url)
+        } catch (uploadError) {
+          console.error("Error uploading video:", uploadError)
+          return res.status(500).json({ error: "Failed to upload video", message: uploadError.message })
+        }
+      }
+    } else if (type === "text") {
+      // For text lessons, store the content
+      lesson.content = content || ""
+    } else if (type === "quiz") {
+      // For quiz lessons, parse and store questions
+      try {
+        lesson.questions = questions ? JSON.parse(questions) : []
+      } catch (e) {
+        console.error("Error parsing quiz questions:", e)
+        return res.status(400).json({ error: "Invalid quiz questions format" })
+      }
+    }
+
+    // Push lesson to the module
+    const modPath = `modules.${moduleIndex}.lessons`
+    const updated = await Course.findOneAndUpdate(
+      { _id: courseId },
+      {
+        $push: { [modPath]: lesson },
+        $set: { updatedAt: new Date() },
+      },
+      { new: true },
+    )
+
+    console.log("Lesson added successfully:", lesson._id)
+
+    res.json({
+      status: "ok",
+      lesson,
+      modules: updated.modules,
+    })
+  } catch (e) {
+    console.error("Error adding lesson:", e)
+    res.status(500).json({ error: "Server error", message: e.message })
+  }
+})
+
+// Update Lesson with enhanced video upload handling
+app.put("/courses/:courseId/modules/:moduleId/lessons/:lessonId", upload.single("video"), async (req, res) => {
+  const { courseId, moduleId, lessonId } = req.params
+  const { title, content, type, duration, isPreview, questions } = req.body
+
+  console.log(`Updating lesson: ${lessonId} in module ${moduleId} of course ${courseId}`)
+
+  if (!title) {
+    return res.status(400).json({ error: "Lesson title required" })
+  }
+
+  try {
+    // Find the course and module first
+    const course = await Course.findById(courseId)
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" })
+    }
+
+    const moduleIndex = course.modules.findIndex((m) => m._id.toString() === moduleId)
+    if (moduleIndex === -1) {
+      return res.status(404).json({ error: "Module not found" })
+    }
+
+    const lessonIndex = course.modules[moduleIndex].lessons.findIndex((l) => l._id.toString() === lessonId)
+    if (lessonIndex === -1) {
+      return res.status(404).json({ error: "Lesson not found" })
+    }
+
+    // Create update object with common fields
+    const updateData = {
+      [`modules.${moduleIndex}.lessons.${lessonIndex}.title`]: title,
+      [`modules.${moduleIndex}.lessons.${lessonIndex}.updatedAt`]: new Date(),
+      updatedAt: new Date(),
+    }
+
+    if (type !== undefined) {
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.type`] = type
+    }
+
+    if (isPreview !== undefined) {
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.isPreview`] = isPreview === "true" || isPreview === true
+    }
+
+    // Add type-specific fields
+    const currentType = type || course.modules[moduleIndex].lessons[lessonIndex].type
+
+    if (currentType === "video") {
+      // Parse duration to seconds if provided as MM:SS
+      if (duration) {
+        if (typeof duration === "number") {
+          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = duration
+        } else {
+          const parts = duration.split(":")
+          if (parts.length === 2) {
+            const minutes = Number.parseInt(parts[0], 10)
+            const seconds = Number.parseInt(parts[1], 10)
+            if (!isNaN(minutes) && !isNaN(seconds)) {
+              updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = minutes * 60 + seconds
+            }
+          } else {
+            updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = Number.parseInt(duration, 10) || 0
+          }
+        }
+      }
+
+      // Upload new video if provided
+      if (req.file) {
+        try {
+          console.log(`Uploading new video: ${req.file.originalname} (${req.file.size} bytes)`)
+          const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
+          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoCid`] = fileData.cid
+          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoName`] = fileData.name
+          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoUrl`] = fileData.url
+          console.log("New video uploaded successfully:", fileData.url)
+        } catch (uploadError) {
+          console.error("Error uploading video:", uploadError)
+          return res.status(500).json({ error: "Failed to upload video", message: uploadError.message })
+        }
+      }
+
+      // Clear fields from other lesson types
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.content`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.questions`] = []
+    } else if (currentType === "text") {
+      // For text lessons, update the content
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.content`] = content || ""
+
+      // Clear fields from other lesson types
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoCid`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoName`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoUrl`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = 0
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.questions`] = []
+    } else if (currentType === "quiz") {
+      // For quiz lessons, parse and update questions
+      try {
+        updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.questions`] = questions ? JSON.parse(questions) : []
+      } catch (e) {
+        console.error("Error parsing quiz questions:", e)
+        return res.status(400).json({ error: "Invalid quiz questions format" })
+      }
+
+      // Clear fields from other lesson types
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.content`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoCid`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoName`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoUrl`] = ""
+      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = 0
+    }
+
+    // Update the lesson
+    const updated = await Course.findOneAndUpdate({ _id: courseId }, { $set: updateData }, { new: true })
+
+    console.log("Lesson updated successfully:", lessonId)
+
+    res.json({
+      status: "ok",
+      lesson: updated.modules[moduleIndex].lessons[lessonIndex],
+      modules: updated.modules,
+    })
+  } catch (e) {
+    console.error("Error updating lesson:", e)
+    res.status(500).json({ error: "Server error", message: e.message })
+  }
+})
 
 // Get all courses (with optional filters)
 app.get("/courses", async (req, res) => {
@@ -414,6 +758,8 @@ app.put("/courses/:courseId", upload.single("thumbnail"), async (req, res) => {
     const { courseId } = req.params
     const updateData = req.body
 
+    console.log(`Updating course: ${courseId}`)
+
     // Find the course first to verify it exists
     const existingCourse = await Course.findById(courseId)
     if (!existingCourse) {
@@ -437,8 +783,11 @@ app.put("/courses/:courseId", upload.single("thumbnail"), async (req, res) => {
     // Handle thumbnail upload
     if (req.file) {
       try {
+        console.log("Uploading new thumbnail...")
         const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
         updateData.thumbnail = fileData.url
+        updateData.thumbnailCid = fileData.cid
+        console.log("Thumbnail updated successfully:", fileData.url)
       } catch (uploadError) {
         console.error("Error uploading thumbnail:", uploadError)
         // Keep existing thumbnail if upload fails
@@ -449,6 +798,8 @@ app.put("/courses/:courseId", upload.single("thumbnail"), async (req, res) => {
     updateData.updatedAt = new Date()
 
     const course = await Course.findByIdAndUpdate(courseId, { $set: updateData }, { new: true })
+
+    console.log("Course updated successfully:", courseId)
 
     res.json({ status: "ok", course })
   } catch (e) {
@@ -467,6 +818,8 @@ app.delete("/courses/:courseId", async (req, res) => {
     if (!course) {
       return res.status(404).json({ error: "Course not found" })
     }
+
+    console.log("Course deleted successfully:", courseId)
 
     res.json({ status: "ok", message: "Course deleted successfully" })
   } catch (e) {
@@ -512,6 +865,8 @@ app.post("/courses/:courseId/modules", async (req, res) => {
       { new: true },
     )
 
+    console.log("Module added successfully:", newModule._id)
+
     res.json({ status: "ok", modules: course.modules })
   } catch (e) {
     console.error("Error adding module:", e)
@@ -554,6 +909,8 @@ app.put("/courses/:courseId/modules/:moduleId", async (req, res) => {
 
     const updatedCourse = await Course.findByIdAndUpdate(courseId, { $set: updateData }, { new: true })
 
+    console.log("Module updated successfully:", moduleId)
+
     res.json({ status: "ok", modules: updatedCourse.modules })
   } catch (e) {
     console.error("Error updating module:", e)
@@ -582,240 +939,11 @@ app.delete("/courses/:courseId/modules/:moduleId", async (req, res) => {
       { new: true },
     )
 
+    console.log("Module deleted successfully:", moduleId)
+
     res.json({ status: "ok", modules: updatedCourse.modules })
   } catch (e) {
     console.error("Error deleting module:", e)
-    res.status(500).json({ error: "Server error", message: e.message })
-  }
-})
-
-// Add Lesson with type-specific handling
-app.post("/courses/:courseId/modules/:moduleId/lessons", upload.single("video"), async (req, res) => {
-  const { courseId, moduleId } = req.params
-  const { title, content, type = "video", duration, isPreview = false, questions } = req.body
-
-  // Set appropriate timeout for mobile uploads
-  req.setTimeout(300000) // 5 minutes timeout for large uploads
-
-  if (!title) {
-    return res.status(400).json({ error: "Lesson title required" })
-  }
-
-  // Validate based on lesson type
-  if (type === "video" && !req.file) {
-    return res.status(400).json({ error: "Video file required for video lessons" })
-  }
-
-  try {
-    // Find the course and module first
-    const course = await Course.findById(courseId)
-    if (!course) {
-      return res.status(404).json({ error: "Course not found" })
-    }
-
-    const moduleIndex = course.modules.findIndex((m) => m._id.toString() === moduleId)
-    if (moduleIndex === -1) {
-      return res.status(404).json({ error: "Module not found" })
-    }
-
-    // Create lesson object with common fields
-    const lesson = {
-      _id: new mongoose.Types.ObjectId(),
-      title,
-      type,
-      isPreview: isPreview === "true" || isPreview === true,
-      order: course.modules[moduleIndex].lessons.length,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-
-    // Add type-specific fields
-    if (type === "video") {
-      // Parse duration to seconds if provided as MM:SS
-      if (duration) {
-        if (typeof duration === "number") {
-          lesson.duration = duration
-        } else {
-          const parts = duration.split(":")
-          if (parts.length === 2) {
-            const minutes = Number.parseInt(parts[0], 10)
-            const seconds = Number.parseInt(parts[1], 10)
-            if (!isNaN(minutes) && !isNaN(seconds)) {
-              lesson.duration = minutes * 60 + seconds
-            } else {
-              lesson.duration = 0
-            }
-          } else {
-            lesson.duration = Number.parseInt(duration, 10) || 0
-          }
-        }
-      } else {
-        lesson.duration = 0
-      }
-
-      // Upload video if provided
-      if (req.file) {
-        try {
-          const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
-          lesson.videoCid = fileData.cid
-          lesson.videoName = fileData.name
-          lesson.videoUrl = fileData.url
-        } catch (uploadError) {
-          console.error("Error uploading video:", uploadError)
-          return res.status(500).json({ error: "Failed to upload video", message: uploadError.message })
-        }
-      }
-    } else if (type === "text") {
-      // For text lessons, store the content
-      lesson.content = content || ""
-    } else if (type === "quiz") {
-      // For quiz lessons, parse and store questions
-      try {
-        lesson.questions = questions ? JSON.parse(questions) : []
-      } catch (e) {
-        console.error("Error parsing quiz questions:", e)
-        return res.status(400).json({ error: "Invalid quiz questions format" })
-      }
-    }
-
-    // Push lesson to the module
-    const modPath = `modules.${moduleIndex}.lessons`
-    const updated = await Course.findOneAndUpdate(
-      { _id: courseId },
-      {
-        $push: { [modPath]: lesson },
-        $set: { updatedAt: new Date() },
-      },
-      { new: true },
-    )
-
-    res.json({
-      status: "ok",
-      lesson,
-      modules: updated.modules,
-    })
-  } catch (e) {
-    console.error("Error adding lesson:", e)
-    res.status(500).json({ error: "Server error", message: e.message })
-  }
-})
-
-// Update Lesson with type-specific handling
-app.put("/courses/:courseId/modules/:moduleId/lessons/:lessonId", upload.single("video"), async (req, res) => {
-  const { courseId, moduleId, lessonId } = req.params
-  const { title, content, type, duration, isPreview, questions } = req.body
-
-  if (!title) {
-    return res.status(400).json({ error: "Lesson title required" })
-  }
-
-  try {
-    // Find the course and module first
-    const course = await Course.findById(courseId)
-    if (!course) {
-      return res.status(404).json({ error: "Course not found" })
-    }
-
-    const moduleIndex = course.modules.findIndex((m) => m._id.toString() === moduleId)
-    if (moduleIndex === -1) {
-      return res.status(404).json({ error: "Module not found" })
-    }
-
-    const lessonIndex = course.modules[moduleIndex].lessons.findIndex((l) => l._id.toString() === lessonId)
-    if (lessonIndex === -1) {
-      return res.status(404).json({ error: "Lesson not found" })
-    }
-
-    // Create update object with common fields
-    const updateData = {
-      [`modules.${moduleIndex}.lessons.${lessonIndex}.title`]: title,
-      [`modules.${moduleIndex}.lessons.${lessonIndex}.updatedAt`]: new Date(),
-      updatedAt: new Date(),
-    }
-
-    if (type !== undefined) {
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.type`] = type
-    }
-
-    if (isPreview !== undefined) {
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.isPreview`] = isPreview === "true" || isPreview === true
-    }
-
-    // Add type-specific fields
-    const currentType = type || course.modules[moduleIndex].lessons[lessonIndex].type
-
-    if (currentType === "video") {
-      // Parse duration to seconds if provided as MM:SS
-      if (duration) {
-        if (typeof duration === "number") {
-          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = duration
-        } else {
-          const parts = duration.split(":")
-          if (parts.length === 2) {
-            const minutes = Number.parseInt(parts[0], 10)
-            const seconds = Number.parseInt(parts[1], 10)
-            if (!isNaN(minutes) && !isNaN(seconds)) {
-              updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = minutes * 60 + seconds
-            }
-          } else {
-            updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = Number.parseInt(duration, 10) || 0
-          }
-        }
-      }
-
-      // Upload new video if provided
-      if (req.file) {
-        try {
-          const fileData = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
-          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoCid`] = fileData.cid
-          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoName`] = fileData.name
-          updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoUrl`] = fileData.url
-        } catch (uploadError) {
-          console.error("Error uploading video:", uploadError)
-          return res.status(500).json({ error: "Failed to upload video", message: uploadError.message })
-        }
-      }
-
-      // Clear fields from other lesson types
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.content`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.questions`] = []
-    } else if (currentType === "text") {
-      // For text lessons, update the content
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.content`] = content || ""
-
-      // Clear fields from other lesson types
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoCid`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoName`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoUrl`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = 0
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.questions`] = []
-    } else if (currentType === "quiz") {
-      // For quiz lessons, parse and update questions
-      try {
-        updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.questions`] = questions ? JSON.parse(questions) : []
-      } catch (e) {
-        console.error("Error parsing quiz questions:", e)
-        return res.status(400).json({ error: "Invalid quiz questions format" })
-      }
-
-      // Clear fields from other lesson types
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.content`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoCid`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoName`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.videoUrl`] = ""
-      updateData[`modules.${moduleIndex}.lessons.${lessonIndex}.duration`] = 0
-    }
-
-    // Update the lesson
-    const updated = await Course.findOneAndUpdate({ _id: courseId }, { $set: updateData }, { new: true })
-
-    res.json({
-      status: "ok",
-      lesson: updated.modules[moduleIndex].lessons[lessonIndex],
-      modules: updated.modules,
-    })
-  } catch (e) {
-    console.error("Error updating lesson:", e)
     res.status(500).json({ error: "Server error", message: e.message })
   }
 })
@@ -846,6 +974,8 @@ app.delete("/courses/:courseId/modules/:moduleId/lessons/:lessonId", async (req,
       },
       { new: true },
     )
+
+    console.log("Lesson deleted successfully:", lessonId)
 
     res.json({ status: "ok", modules: updatedCourse.modules })
   } catch (e) {
@@ -920,6 +1050,8 @@ app.put("/courses/:courseId/settings", async (req, res) => {
       { new: true },
     )
 
+    console.log("Course settings updated successfully:", courseId)
+
     res.json({ status: "ok", settings })
   } catch (e) {
     console.error("Error updating course settings:", e)
@@ -932,6 +1064,8 @@ app.put("/courses/:courseId/publish", async (req, res) => {
   try {
     const { courseId } = req.params
 
+    console.log(`Publishing course: ${courseId}`)
+
     // Find the course
     const course = await Course.findById(courseId)
 
@@ -943,6 +1077,7 @@ app.put("/courses/:courseId/publish", async (req, res) => {
     const validation = validateCourseForPublishing(course)
 
     if (!validation.isValid) {
+      console.log("Course validation failed:", validation.missingFields)
       return res.status(400).json({
         error: "Course cannot be published due to missing information",
         missingFields: validation.missingFields,
@@ -1003,6 +1138,8 @@ app.put("/courses/:courseId/publish", async (req, res) => {
       },
       { new: true },
     )
+
+    console.log("Course published successfully:", courseId)
 
     // Create notification for the instructor
     try {
@@ -1108,6 +1245,8 @@ app.post("/courses/:courseId/duplicate", async (req, res) => {
     // Create the new course
     const duplicatedCourse = await Course.create(newCourse)
 
+    console.log("Course duplicated successfully:", duplicatedCourse._id)
+
     res.json({ status: "ok", course: duplicatedCourse })
   } catch (e) {
     console.error("Error duplicating course:", e)
@@ -1134,11 +1273,11 @@ app.post("/checkuserprofile", async (req, res) => {
       { $push: { loginHistory: { ip, userAgent: ua, timestamp: new Date() } } },
       { upsert: true },
     )
-    console.log("user profile checked user");
+
+    console.log("User profile checked:", userwalletaddress)
     return res.json({ status: userExists ? "registered" : "new" })
-    
   } catch (err) {
-    console.log("Error checking user profile:", err)
+    console.error("Error checking user profile:", err)
     return res.status(500).json({ error: "Internal server error", message: err.message })
   }
 })
@@ -1199,6 +1338,8 @@ app.post("/newuser", async (req, res) => {
       },
       { upsert: true },
     )
+
+    console.log("New user created:", userwalletaddress)
 
     // 4) Respond once with the updated user
     return res.json({ status: "ok", user: updatedUser })
@@ -1301,7 +1442,14 @@ app.get("/activity/:address", async (req, res) => {
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    storage: {
+      storacha: storacha ? "initialized" : "not available",
+      web3storage: web3storage ? "initialized" : "not available",
+    },
+  })
 })
 
 // ─── CONNECT & START ────────────────────────────────────────────────────────────
@@ -1309,7 +1457,13 @@ mongoose
   .connect(process.env.DB_URI)
   .then(() => {
     console.log("Connected to database")
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`)
+      console.log("Storage providers:", {
+        storacha: storacha ? "✓ Ready" : "✗ Not available",
+        web3storage: web3storage ? "✓ Ready" : "✗ Not available",
+      })
+    })
   })
   .catch((err) => console.error("Error connecting to DB:", err))
 
@@ -1321,5 +1475,3 @@ process.on("SIGTERM", () => {
     process.exit(0)
   })
 })
-
-
