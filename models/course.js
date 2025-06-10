@@ -1,5 +1,5 @@
-const mongoose = require("mongoose")
-const { Schema } = mongoose
+const mongoose = require("mongoose");
+const { Schema } = mongoose;
 
 const LessonSchema = new Schema(
   {
@@ -20,8 +20,8 @@ const LessonSchema = new Schema(
       },
     ],
   },
-  { timestamps: true },
-)
+  { timestamps: true }
+);
 
 const ModuleSchema = new Schema(
   {
@@ -30,27 +30,44 @@ const ModuleSchema = new Schema(
     lessons: [LessonSchema],
     order: { type: Number, default: 0 },
   },
-  { timestamps: true },
-)
+  { timestamps: true }
+);
 
 const CourseSchema = new Schema(
   {
     title: { type: String, required: true, trim: true },
     slug: { type: String, lowercase: true, trim: true },
     description: { type: String, default: "" },
-    instructorAddress: { type: String, required: true, lowercase: true, index: true },
+    instructorAddress: {
+      type: String,
+      required: true,
+      lowercase: true,
+      index: true,
+    },
     thumbnail: { type: String, default: "" },
     category: { type: String, default: "" },
-    level: { type: String, enum: ["beginner", "intermediate", "advanced", "expert"], default: "beginner" },
+    level: {
+      type: String,
+      enum: ["beginner", "intermediate", "advanced", "expert"],
+      default: "beginner",
+    },
     tags: [String],
     modules: [ModuleSchema],
 
     // Pricing
-    priceType: { type: String, enum: ["free", "paid", "subscription"], default: "paid" },
+    priceType: {
+      type: String,
+      enum: ["free", "paid", "subscription"],
+      default: "paid",
+    },
     price: { type: Number, default: 0 },
 
     // Status
-    status: { type: String, enum: ["draft", "published", "archived"], default: "draft" },
+    status: {
+      type: String,
+      enum: ["draft", "published", "archived"],
+      default: "draft",
+    },
     publishedAt: { type: Date },
 
     // Course details
@@ -68,7 +85,11 @@ const CourseSchema = new Schema(
       enum: ["all-lessons", "all-quizzes", "final-quiz", "custom"],
       default: "all-lessons",
     },
-    visibility: { type: String, enum: ["public", "unlisted", "private", "draft"], default: "public" },
+    visibility: {
+      type: String,
+      enum: ["public", "unlisted", "private", "draft"],
+      default: "public",
+    },
 
     // SEO
     seoTitle: { type: String, default: "" },
@@ -78,8 +99,8 @@ const CourseSchema = new Schema(
     enrolledCount: { type: Number, default: 0 },
     isFeatured: { type: Boolean, default: false },
   },
-  { timestamps: true },
-)
+  { timestamps: true }
+);
 
 // Generate slug from title before saving
 CourseSchema.pre("save", function (next) {
@@ -87,9 +108,9 @@ CourseSchema.pre("save", function (next) {
     this.slug = this.title
       .toLowerCase()
       .replace(/[^\w\s]/g, "")
-      .replace(/\s+/g, "-")
+      .replace(/\s+/g, "-");
   }
-  next()
-})
+  next();
+});
 
-module.exports = mongoose.model("Course", CourseSchema)
+module.exports = mongoose.model("Course", CourseSchema);
