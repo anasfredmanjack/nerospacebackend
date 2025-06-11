@@ -135,7 +135,7 @@
 
 /**
  * @swagger
- * /api/nerogigs:
+ * /nerogigs:
  *   post:
  *     summary: Create a new gig
  *     tags: [Gigs]
@@ -200,7 +200,7 @@
 
 /**
  * @swagger
- * /api/nerogigs/{id}:
+ * /nerogigs/{id}:
  *   get:
  *     summary: Get a gig by ID
  *     tags: [Gigs]
@@ -224,7 +224,7 @@
 
 /**
  * @swagger
- * /api/nerogigs/categories:
+ * /nerogigs/categories:
  *   get:
  *     summary: Get all gig categories
  *     tags: [Gigs]
@@ -241,7 +241,7 @@
 
 /**
  * @swagger
- * /api/nerogigs/categories/{category}:
+ * /nerogigs/categories/{category}:
  *   get:
  *     summary: Get gigs by category
  *     tags: [Gigs]
@@ -267,7 +267,7 @@
 
 /**
  * @swagger
- * /api/nerogigs/tags:
+ * /nerogigs/tags:
  *   get:
  *     summary: Get all gig tags
  *     tags: [Gigs]
@@ -284,7 +284,7 @@
 
 /**
  * @swagger
- * /api/nerogigs/tags/{tag}:
+ * /nerogigs/tags/{tag}:
  *   get:
  *     summary: Get gigs by tag
  *     tags: [Gigs]
