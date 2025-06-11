@@ -19,6 +19,7 @@ export class NeroGigsService {
   async findGigByCategory(category: string) {
     return await GigModel.find({ category });
   }
+
   async findAllGigCategories() {
     console.log("findAllGigCategories");
     const categories = await CategoryModel.find();
