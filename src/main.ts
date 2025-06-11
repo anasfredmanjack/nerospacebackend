@@ -61,7 +61,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 export const router = express.Router();
 
 // Use router
-app.use("/api", router);
+app.use("/", router);
 
 router.get("/", (req, res) => {
   res.send("Hello World");
