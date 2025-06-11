@@ -1,5 +1,6 @@
-function welcomeEmail(address) {
-    return `<!DOCTYPE html>
+// @ts-nocheck
+export function welcomeEmail(address: string) {
+  return `<!DOCTYPE html>
   <html>
   <head>
       <meta charset="UTF-8">
@@ -60,6 +61,4 @@ function welcomeEmail(address) {
       </div>
   </body>
   </html>`;
-  }
-  
-  module.exports = { welcomeEmail };
+}

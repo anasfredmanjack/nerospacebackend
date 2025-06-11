@@ -19,7 +19,7 @@ import Notifications from "./models/notifications";
 import { welcomeEmail } from "./utils/newusermailtemplate";
 
 // Import the StorachaClient
-const StorachaClient = require("./utils/storacha-client");
+import StorachaClient from "./utils/storacha-client";
 // Fallback to Web3Storage if Storacha fails
 const { Web3Storage } = require("web3.storage");
 

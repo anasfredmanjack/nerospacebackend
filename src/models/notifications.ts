@@ -1,6 +1,6 @@
 // models/notifications.js
-const mongoose = require("mongoose");
-const { Schema } = mongoose;
+import mongoose from "mongoose";
+import { Schema } from "mongoose";
 
 // Sub‐schema for each notification item
 const NotificationItemSchema = new Schema(
