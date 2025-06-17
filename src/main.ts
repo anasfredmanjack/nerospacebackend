@@ -21,8 +21,7 @@ import { welcomeEmail } from "./utils/newusermailtemplate";
 // Import the StorachaClient
 import StorachaClient from "./utils/storacha-client";
 // Fallback to Web3Storage if Storacha fails
-const { Web3Storage } = require("web3.storage");
-
+import { Web3Storage } from 'web3.storage'
 dotenv.config();
 
 export const app = express();
