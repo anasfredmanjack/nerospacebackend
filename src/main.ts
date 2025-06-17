@@ -53,7 +53,14 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 app.use(morgan("dev")); // Logs: :method :url :status :response-time ms
 
 // CORS + JSON body parsing with improved mobile support
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    allowedHeaders: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "50mb" })); // Increased limit for mobile uploads
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -1890,15 +1897,6 @@ router.get("/activity/:address", async (req, res) => {
 router.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
-
-// // ─── CONNECT & START ────────────────────────────────────────────────────────────
-// mongoose
-//   .connect(process.env.DB_URI)
-//   .then(() => {
-//     console.log("Connected to database");
-//     router.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-//   })
-//   .catch((err) => console.error("Error connecting to DB:", err));
 
 // Handle graceful shutdown
 process.on("SIGTERM", () => {
