@@ -6,10 +6,8 @@ const LessonSchema = new Schema(
     title: { type: String, required: true, trim: true },
     type: { type: String, enum: ["video", "text", "quiz"], default: "video" },
     content: { type: String, default: "" },
-    videoCid: { type: String, default: "" }, // IPFS CID
-    videoName: { type: String, default: "" }, // original filename
+    youtubeUrl: { type: String, default: "" },
     videoUrl: { type: String, default: "" }, // full URL to video
-    duration: { type: Number, default: 0 }, // seconds
     isPreview: { type: Boolean, default: false },
     order: { type: Number, default: 0 },
     questions: [
