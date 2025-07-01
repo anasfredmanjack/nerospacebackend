@@ -1,6 +1,8 @@
 import { CategoryModel } from "@/models/gigs/Category";
 import { Gig, GigModel } from "@/models/gigs/Gig";
 import { TagModel } from "@/models/gigs/Tag";
+import { BidModel } from "@/models/gigs/Bid";
+import { Types } from "mongoose";
 
 export class NeroGigsService {
   async create(gig: Gig) {
@@ -37,5 +39,26 @@ export class NeroGigsService {
 
   async findGigByTag(tag: string) {
     return await GigModel.find({ tags: tag });
+  }
+
+  async createBid(
+    gigId: string,
+    amount: number,
+    message: string,
+    userAddress: string
+  ) {
+    try {
+      const bid = await BidModel.create({
+        amount,
+        message,
+        userAddress,
+        gig: gigId,
+      });
+      // Add bid to gig's bids array
+      await GigModel.findByIdAndUpdate(gigId, { $push: { bids: bid._id } });
+      return bid;
+    } catch (error) {
+      throw new Error("Failed to create bid: " + error);
+    }
   }
 }

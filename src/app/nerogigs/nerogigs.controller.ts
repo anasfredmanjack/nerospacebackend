@@ -45,5 +45,21 @@ export class NeroGigsController {
       const gigs = await this.nerogigsService.findAll();
       res.status(200).json(gigs);
     });
+
+    this.router.post("/nerogigs/:gigId/bids", async (req, res) => {
+      try {
+        const { amount, message, userAddress } = req.body;
+        const { gigId } = req.params;
+        const bid = await this.nerogigsService.createBid(
+          gigId,
+          amount,
+          message,
+          userAddress
+        );
+        res.status(201).json(bid);
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    });
   }
 }

@@ -124,6 +124,39 @@
  *         updatedAt:
  *           type: string
  *           format: date-time
+ *
+ *     Bid:
+ *       type: object
+ *       required:
+ *         - amount
+ *         - message
+ *         - userAddress
+ *         - gig
+ *       properties:
+ *         _id:
+ *           type: string
+ *           description: The bid ID
+ *         amount:
+ *           type: number
+ *           minimum: 0
+ *           description: The bid amount
+ *         message:
+ *           type: string
+ *           minLength: 1
+ *           maxLength: 500
+ *           description: The bid message
+ *         userAddress:
+ *           type: string
+ *           description: The address of the user making the bid
+ *         gig:
+ *           type: string
+ *           description: The ID of the gig this bid is for
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
  */
 
 /**
@@ -306,4 +339,49 @@
  *                 $ref: '#/components/schemas/Gig'
  *       404:
  *         description: Tag not found
+ */
+
+/**
+ * @swagger
+ * /nerogigs/{gigId}/bids:
+ *   post:
+ *     summary: Create a bid for a gig
+ *     tags: [Gigs]
+ *     parameters:
+ *       - in: path
+ *         name: gigId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The gig ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *               - message
+ *               - userAddress
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 minimum: 0
+ *               message:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 500
+ *               userAddress:
+ *                 type: string
+ *                 description: The address of the user making the bid
+ *     responses:
+ *       201:
+ *         description: The bid was successfully created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Bid'
+ *       400:
+ *         description: Invalid input data
  */

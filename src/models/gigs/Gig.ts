@@ -7,6 +7,7 @@ import {
 import { Category } from "./Category";
 import { Tag } from "./Tag";
 import { Package } from "./Package";
+import { Bid } from "./Bid";
 
 @modelOptions({
   schemaOptions: {
@@ -28,6 +29,9 @@ export class Gig {
 
   @prop({ type: () => [Package], _id: false })
   packages!: Package[];
+
+  @prop({ ref: () => Bid, type: () => [Bid], default: [] })
+  bids?: Ref<Bid>[];
 
   @prop()
   thumbnailUrl?: string;
